@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>UDP Frontend - Quản lý Tiền lương</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+  body { background-color: #cbd7e2; }
+  .container { margin-top: 30px; }
+
+  .table-hover tbody tr:hover { cursor: pointer; background-color: #2062a4; }
+  .table-hover tbody tr.selected,
+  .table-hover tbody tr.selected:hover {
+    background-color: #7ea5df !important;
+  }
+
+  /* Header và body cùng nhỏ gọn */
+  .table thead th {
+    font-size: 0.875rem;
+    font-weight: 600;
+    padding-top: 6px;
+    padding-bottom: 6px;
+  }
+
+  .table tbody td {
+    font-size: 0.8125rem;
+    padding-top: 4px;
+    padding-bottom: 4px;
+  }
+
+  .toast-container { position: fixed; top: 1rem; right: 1rem; z-index: 1055; }
+</style>
+
+</head>
+<body>
+  <div class="container">
+    <h2 class="text-center mb-4">Quản lý Tiền lương</h2>
+
+    <div class="row">
+      <!-- Danh sách nhân viên -->
+      <div class="col-md-5">
+        <div class="card shadow-sm">
+          <div class="card-header bg-primary text-white">Danh sách Nhân viên</div>
+          <div class="card-body">
+            <table class="table table-bordered table-hover" id="phongBanTable">
+              <thead>
+                <tr>
+                  <th>Mã Nhân viên</th>
+                  <th>Tên Nhân viên</th>
+                  <th>Ngày sinh</th>
+                </tr>
+              </thead>
+              <tbody id="nhanVienBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+
+      <!-- Danh sách Tiền lương -->
+      <div class="col-md-7">
+        <div class="card shadow-sm">
+          <div class="card-header bg-success text-white" id="nvHeader">Danh sách Tiền lương</div>
+          <div class="card-body">
+            <table class="table table-bordered table-hover" id="nhanVienTable">
+              <thead>
+                <tr>
+                  <th>Mã Nhân viên</th>
+                  <th>Thu nhập</th>
+                  <th>Tháng</th>
+                  <th>Năm</th>
+                  <th>Loại</th>
+                  <th><button id="addButton" style="display: none;" class="btn btn-success btn-sm" onclick="openAddModal()">Thêm mới</button></th>
+                </tr>
+<tr id="searchRow" style="display: none;" class="bg-light">
+    <td colspan="6">
+      <input type="text" id="inputSearchTienLuong" class="form-control form-control-sm" placeholder="Tìm kiếm theo Tháng hoặc Năm thu nhập">
+    </td>
+  </tr>
+              </thead>
+              <tbody id="tienLuongBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast thông báo -->
+  <div class="toast-container">
+    <div id="mainToast" class="toast align-items-center text-white bg-info border-0" role="alert">
+      <div class="d-flex">
+        <div class="toast-body" id="toastMsg"></div>
+        <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+      </div>
+    </div>
+  </div>
+
+  <div class="modal fade" id="tienLuongModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog">
+    <div class="modal-content">
+      <div class="modal-header bg-primary text-white">
+        <h5 class="modal-title" id="modalTitle">Thêm mới/Cập nhật Tiền lương</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <form id="tienLuongForm">
+          <input type="hidden" id="editId"> <!-- Dùng để lưu ID khi Update -->
+          
+          <div class="mb-3">
+            <label class="form-label">Mã nhân viên</label>
+            <input type="text" id="inputMaNV" class="form-control" required readonly>
+          </div>
+
+          <div class="mb-3">
+            <label class="form-label">Số tiền</label>
+            <input type="number" id="inputMoney" class="form-control" required>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label">Tháng</label>
+            <input type="text" id="inputMonth" class="form-control" placeholder="Ví dụ: 05" required>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label">Năm</label>
+            <input type="text" id="inputYear" class="form-control" placeholder="Ví dụ: 2024" required>
+          </div>
+          
+          <div class="mb-3">
+            <label class="form-label">Loại</label>
+            <select id="inputSalaryType" class="form-control">
+              <option value="SALARY">Lương</option>
+              <option value="BONUS">Thưởng</option>
+            </select>
+          </div>
+        </form>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Đóng</button>
+        <button type="button" class="btn btn-primary" onclick="saveTienLuong()">Lưu lại</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <script>
+  const API_BASE = "http://localhost:8080";
+  let selectedPhongBan = null;
+  let toast;
+
+  document.addEventListener("DOMContentLoaded", () => {
+    toast = new bootstrap.Toast(document.getElementById("mainToast"));
+    loadNhanVien();
+  });
+
+  function showToast(msg, type = "info") {
+    const toastEl = document.getElementById("mainToast");
+    toastEl.className = `toast align-items-center text-white bg-${type} border-0`;
+    document.getElementById("toastMsg").textContent = msg;
+    toast.show();
+  }
+
+  async function loadNhanVien() {
+    try {
+      const res = await fetch(`${API_BASE}/employee/api/v1/nhanvien/SI`);      
+      const nhanViens = await res.json();
+
+      const body = document.getElementById("nhanVienBody");
+      body.innerHTML = "";
+
+      nhanViens.forEach(nv => {
+      const maNhanVien = nv.maNhanVien;
+      const tenNhanVien = nv.tenNhanVien;
+      const ngaySinh = nv.ngaySinh;
+
+        const row = document.createElement("tr");
+        row.innerHTML = `
+          <td>${maNhanVien}</td>
+          <td>${tenNhanVien}</td>
+          <td>${ngaySinh}</td>
+        `;
+
+        // Khi click vào dòng nhân viên
+        row.addEventListener("click", (e) => {
+          if (e.target.tagName === "BUTTON") return;
+          selectedPhongBan = maNhanVien;
+          highlightSelectedNhanVien();
+          loadTienLuong(maNhanVien);
+          maNVGlobal = maNhanVien;
+          if (maNVGlobal && maNVGlobal.length > 0) {
+              const addButton = document.getElementById("addButton");
+              addButton.style.display = "";
+          }
+        });
+
+        body.appendChild(row);
+      });
+
+      // Sau khi render lại, đánh dấu nhân viên đang chọn
+      highlightSelectedNhanVien();
+
+    } catch (e) {
+      showToast("Lỗi tải danh sách nhân viên: " + e.message, "danger");
+    }
+  }
+
+  function highlightSelectedNhanVien() {
+    document.querySelectorAll("#nhanVienBody tr").forEach(tr => {
+      const maPB = tr.children[0].innerText.trim();
+      if (maPB === selectedPhongBan) {
+        tr.classList.add("selected");
+      } else {
+        tr.classList.remove("selected");
+      }
+    });
+  }
+
+  async function loadTienLuong(maNhanVienReq) {
+    try {
+      const res = await fetch(`${API_BASE}/salary/api/v1/salary/${maNhanVienReq}`);
+      const tienLuongs = await res.json();
+      currentTienLuongs = tienLuongs;
+      const body = document.getElementById("tienLuongBody");
+      body.innerHTML = "";
+      document.getElementById("nvHeader").textContent = `Danh sách Tiền lương - nhân viên ${maNhanVienReq}`;
+      const tongThuNhap = (tienLuongs.length > 0) ? Number(tienLuongs[0].totalSalary) : 0;
+      tienLuongs.forEach(tl => {
+        const maNhanVien = tl.maNhanVien;
+        const moneyRes = tl.money;
+        const money = moneyRes.toLocaleString('vi-VN') + ' VNĐ';
+        const monthOfSalary = tl.monthOfSalary;
+        const yearOfSalary = tl.yearOfSalary;
+        const salaryType = tl.salaryType == 'SALARY' ? 'Lương' : 'Thưởng';
+
+        const row = document.createElement("tr");
+        const itemData = JSON.stringify(tl).replace(/"/g, '&quot;');
+        row.innerHTML = `
+          <td>${maNhanVien}</td>
+          <td>${money}</td>
+          <td>${monthOfSalary}</td>
+          <td>${yearOfSalary}</td>
+          <td>${salaryType}</td>
+          <td><button class="btn btn-primary btn-sm" onclick="openEditModal(${itemData})">Sửa</button> <button class="btn btn-danger btn-sm" onclick="deleteTienLuong('${maNhanVien}', '${salaryType}', '${money}')">Xóa</button></td>
+        `;
+        body.appendChild(row);
+      });
+
+      if (tienLuongs && tienLuongs.length > 0) {
+        const searchRow = document.getElementById("searchRow");
+        searchRow.style.display = "";
+      }
+
+    const totalRow = document.createElement("tr");
+    totalRow.className = "table-secondary font-weight-bold";
+    totalRow.innerHTML = `
+      <td colspan="1" style="text-align: left"><strong>Tổng cộng:</strong></td>
+      <td colspan="5" class="text-danger"><strong>${tongThuNhap.toLocaleString('vi-VN')} VNĐ</strong></td>
+    `;
+    body.appendChild(totalRow);
+
+    } catch (e) {
+      showToast("Lỗi tải danh sách Tiền lương: " + e.message, "danger");
+    }
+  }
+
+
+function renderTienLuongTable(dataList) {
+  const body = document.getElementById("tienLuongBody");
+  body.innerHTML = "";
+  let tong = 0;
+
+  dataList.forEach(tl => {
+    const soTien = Number(tl.money) || 0;
+    tong += soTien; // Tính tổng dựa trên danh sách truyền vào
+
+    const row = document.createElement("tr");
+    const itemData = JSON.stringify(tl).replace(/"/g, '&quot;');
+    row.innerHTML = `
+      <td>${tl.maNhanVien}</td>
+      <td>${soTien.toLocaleString('vi-VN')} VNĐ</td>
+      <td>${tl.monthOfSalary}</td>
+      <td>${tl.yearOfSalary}</td>
+      <td>${tl.salaryType == 'SALARY' ? 'Lương' : 'Thưởng'}</td>
+      <td><button class="btn btn-primary btn-sm" onclick="openEditModal(${itemData})">Sửa</button> <button class="btn btn-danger btn-sm" onclick="deleteTienLuong('${tl.id}')">Xóa</button></td>
+    `;
+    body.appendChild(row);
+  });
+
+  // Luôn thêm hàng tổng ở cuối dựa trên danh sách đang hiển thị
+  const totalRow = document.createElement("tr");
+  totalRow.className = "table-secondary font-weight-bold";
+  totalRow.innerHTML = `
+      <td colspan="1" style="text-align: left"><strong>Tổng cộng:</strong></td>
+      <td colspan="5" class="text-danger"><strong>${tong.toLocaleString('vi-VN')} VNĐ</strong></td>
+    `;
+
+  body.appendChild(totalRow);
+}
+
+
+let maNVGlobal = '';
+let currentTienLuongs = []; 
+document.getElementById("inputSearchTienLuong").addEventListener("input", (e) => {
+  const keyword = e.target.value.trim(); // Không cần toLowerCase nếu chỉ gõ số
+  
+  console.log("Từ khóa đang gõ:", keyword);
+  console.log("Dữ liệu gốc đang có:", currentTienLuongs);
+
+  // Lọc dữ liệu
+  const filteredData = currentTienLuongs.filter(tl => {
+    const keyword = e.target.value.trim();
+    if (!keyword || keyword.length == 0) {
+        return true;
+    }
+    
+    const thang = String(tl.monthOfSalary);
+    const nam = String(tl.yearOfSalary);
+    
+    return thang === keyword || nam === keyword;
+});
+
+  console.log("Dữ liệu sau khi lọc:", filteredData);
+
+  // Vẽ lại bảng
+  renderTienLuongTable(filteredData);
+});
+
+function openAddModal() {
+  
+    document.getElementById("tienLuongForm").reset();
+    document.getElementById("inputMaNV").value = maNVGlobal;
+    document.getElementById("editId").value = "";
+    document.getElementById("modalTitle").innerText = "Thêm mới Tiền lương";
+    
+    const myModal = new bootstrap.Modal(document.getElementById('tienLuongModal'));
+    myModal.show();
+}
+
+// Hàm Lưu dữ liệu (Cả Create và Update)
+async function saveTienLuong() {
+    const id = document.getElementById("editId").value;
+    const data = {
+        maNhanVien: selectedNhanVienId, 
+        money: Number(document.getElementById("inputMoney").value),
+        monthOfSalary: document.getElementById("inputMonth").value,
+        yearOfSalary: document.getElementById("inputYear").value,
+        salaryType: document.getElementById("inputSalaryType").value
+    };
+
+    const method = id ? "PUT" : "POST";
+    const url = id ? `${API_BASE}/employee/api/v1/tienluong/${id}` : `${API_BASE}/employee/api/v1/tienluong`;
+
+    try {
+        const res = await fetch(url, {
+            method: method,
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+
+        if (res.ok) {
+            showToast(id ? "Cập nhật thành công!" : "Thêm mới thành công!", "success");
+            bootstrap.Modal.getInstance(document.getElementById('tienLuongModal')).hide();
+            loadTienLuong(selectedNhanVienId); // Load lại bảng
+        }
+    } catch (e) {
+        showToast("Lỗi khi lưu dữ liệu", "danger");
+    }
+}
+
+// Hàm mở Modal để Update (Gọi khi nhấn nút Sửa)
+function openEditModal(item) {
+    document.getElementById("inputMaNV").value = maNVGlobal;
+    document.getElementById("editId").value = item.id;
+    document.getElementById("inputMoney").value = item.money;
+    document.getElementById("inputMonth").value = item.monthOfSalary;
+    document.getElementById("inputYear").value = item.yearOfSalary;
+    document.getElementById("inputSalaryType").value = item.salaryType;
+    
+    document.getElementById("modalTitle").innerText = "Cập nhật Tiền lương";
+    const myModal = new bootstrap.Modal(document.getElementById('tienLuongModal'));
+    myModal.show();
+}
+
+  async function deletePhongBan(maPB) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa nhân viên ${maPB}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/phongban/${maPB}`, { method: "DELETE" });
+      const text = await res.text();
+      if (text.toLowerCase().includes("deleted")) {
+        showToast(`Đã xóa nhân viên ${maPB}`, "success");
+
+        if (selectedPhongBan === maPB) {
+          selectedPhongBan = null;
+          document.getElementById("tienLuongBody").innerHTML = "";
+          document.getElementById("nvHeader").textContent = "Danh sách Tiền lương";
+        }
+      } else {
+        showToast(text, "warning");
+      }
+      await loadNhanVien();
+    } catch (e) {
+      showToast("Lỗi xóa nhân viên: " + e.message, "danger");
+    }
+  }
+
+  async function deleteTienLuong(maNV, salaryType, money) {
+    if (!confirm(`Bạn có chắc chắn muốn xóa ${salaryType} ${money}?`)) return;
+    try {
+      const res = await fetch(`${API_BASE}/nhanvien/${money}`, { method: "DELETE" });
+      const text = await res.text();
+      if (text.toLowerCase().includes("deleted")) {
+        showToast(`Đã xóa ${salaryType} ${money}`, "success");
+      } else {
+        showToast(text, "warning");
+      }
+      await loadTienLuong(maNV);
+    } catch (e) {
+      showToast("Lỗi xóa Tiền lương: " + e.message, "danger");
+    }
+  }
+</script>
+
+
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/js/bootstrap.bundle.min.js"></script>
+</body>
+</html>
